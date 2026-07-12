@@ -1,47 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
 import AppShell from "@/components/AppShell";
-
-const CURRENT_USER = { name: "Arjun Mehta", role: "Admin" };
-
-/* ── mock data ──────────────────────────────────────────────── */
-
-const DEPARTMENTS_INIT = [
-  { id: 1, name: "Engineering", head: "Ravi Shankar", parent: "—", status: "Active" },
-  { id: 2, name: "Sales", head: "Priya Nair", parent: "—", status: "Active" },
-  { id: 3, name: "HR", head: "Anil Joseph", parent: "—", status: "Active" },
-  { id: 4, name: "QA", head: "Meena Rao", parent: "Engineering", status: "Active" },
-  { id: 5, name: "Logistics", head: "Tarun Bhat", parent: "—", status: "Inactive" },
-];
-
-const CATEGORIES_INIT = [
-  { id: 1, name: "Electronics", count: 214, fields: "Warranty period, Serial no.", status: "Active" },
-  { id: 2, name: "Furniture", count: 87, fields: "—", status: "Active" },
-  { id: 3, name: "Vehicles", count: 12, fields: "Reg. number, Insurance expiry", status: "Active" },
-  { id: 4, name: "Equipment", count: 38, fields: "Calibration date", status: "Active" },
-  { id: 5, name: "Real Estate", count: 5, fields: "Lease expiry", status: "Active" },
-];
-
-const EMPLOYEES_INIT = [
-  { id: 1, name: "Arjun Mehta", email: "arjun@assetflow.in", dept: "Engineering", role: "Admin", status: "Active" },
-  { id: 2, name: "Priya Nair", email: "priya@assetflow.in", dept: "Sales", role: "Department Head", status: "Active" },
-  { id: 3, name: "Ravi Shankar", email: "ravi@assetflow.in", dept: "Engineering", role: "Department Head", status: "Active" },
-  { id: 4, name: "Sana Qureshi", email: "sana@assetflow.in", dept: "Engineering", role: "Employee", status: "Active" },
-  { id: 5, name: "Rohan Iyer", email: "rohan@assetflow.in", dept: "HR", role: "Employee", status: "Active" },
-  { id: 6, name: "Tarun Bhat", email: "tarun@assetflow.in", dept: "Logistics", role: "Asset Manager", status: "Active" },
-  { id: 7, name: "Meena Rao", email: "meena@assetflow.in", dept: "QA", role: "Department Head", status: "Active" },
-  { id: 8, name: "Kiran Desai", email: "kiran@assetflow.in", dept: "Sales", role: "Employee", status: "Inactive" },
-];
-
-const ROLE_OPTIONS = ["Employee", "Department Head", "Asset Manager"];
+import { useApi } from "@/lib/use-api";
+import { useToast } from "@/lib/toast";
+import { ApiError } from "@/lib/api-client";
+import { ROLE_LABEL, type RoleCode } from "@/lib/auth-context";
+import { departmentsApi } from "@/lib/api/departments";
+import { categoriesApi } from "@/lib/api/categories";
+import { employeesApi } from "@/lib/api/employees";
 
 type Tab = "departments" | "categories" | "employees";
 
-/* ── helpers ────────────────────────────────────────────────── */
+const ROLE_ORDER: RoleCode[] = ["EMPLOYEE", "DEPT_HEAD", "ASSET_MANAGER", "ADMIN"];
 
 function StatusChip({ status }: { status: string }) {
-  const active = status === "Active";
+  const active = status === "ACTIVE";
   return (
     <span
       className="chip"
@@ -52,138 +27,159 @@ function StatusChip({ status }: { status: string }) {
         color: active ? "var(--verify)" : "var(--muted)",
       }}
     >
-      {status}
+      {active ? "Active" : "Inactive"}
     </span>
   );
 }
 
-function RoleChip({ role }: { role: string }) {
-  const hueMap: Record<string, { bg: string; fg: string }> = {
-    Admin: { bg: "var(--hue-amber-soft)", fg: "var(--hue-amber)" },
-    "Asset Manager": { bg: "var(--hue-teal-soft)", fg: "var(--hue-teal)" },
-    "Department Head": { bg: "var(--hue-blue-soft)", fg: "var(--hue-blue)" },
-    Employee: { bg: "color-mix(in srgb, var(--muted) 14%, transparent)", fg: "var(--muted)" },
+function RoleChip({ role }: { role: RoleCode }) {
+  const hueMap: Record<RoleCode, { bg: string; fg: string }> = {
+    ADMIN: { bg: "var(--hue-amber-soft)", fg: "var(--hue-amber)" },
+    ASSET_MANAGER: { bg: "var(--hue-teal-soft)", fg: "var(--hue-teal)" },
+    DEPT_HEAD: { bg: "var(--hue-blue-soft)", fg: "var(--hue-blue)" },
+    EMPLOYEE: { bg: "color-mix(in srgb, var(--muted) 14%, transparent)", fg: "var(--muted)" },
   };
-  const h = hueMap[role] ?? hueMap.Employee;
+  const h = hueMap[role] ?? hueMap.EMPLOYEE;
   return (
     <span className="chip" style={{ background: h.bg, color: h.fg }}>
-      {role}
+      {ROLE_LABEL[role]}
     </span>
   );
 }
 
-/* ── component ──────────────────────────────────────────────── */
-
 export default function SetupPage() {
+  const { success, error: toastError } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>("departments");
   const [modalOpen, setModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  /* data state */
-  const [departments, setDepartments] = useState(DEPARTMENTS_INIT);
-  const [categories, setCategories] = useState(CATEGORIES_INIT);
-  const [employees, setEmployees] = useState(EMPLOYEES_INIT);
+  const deptState = useApi((s) => departmentsApi.list(s));
+  const catState = useApi((s) => categoriesApi.list(s));
+  const empState = useApi((s) => employeesApi.list(undefined, s));
+
+  const departments = deptState.data ?? [];
+  const categories = catState.data ?? [];
+  const employees = empState.data ?? [];
+
+  const deptById = useMemo(() => {
+    const m = new Map<string, string>();
+    departments.forEach((d) => m.set(d.department_id, d.name));
+    return m;
+  }, [departments]);
+  const empById = useMemo(() => {
+    const m = new Map<string, string>();
+    employees.forEach((e) => m.set(e.employee_id, e.name));
+    return m;
+  }, [employees]);
 
   /* form state — departments */
   const [deptName, setDeptName] = useState("");
   const [deptHead, setDeptHead] = useState("");
   const [deptParent, setDeptParent] = useState("");
-  const [deptStatus, setDeptStatus] = useState("Active");
 
   /* form state — categories */
   const [catName, setCatName] = useState("");
-  const [catFields, setCatFields] = useState("");
-  const [catStatus, setCatStatus] = useState("Active");
+  const [catDesc, setCatDesc] = useState("");
 
-  /* form state — employees */
-  const [empName, setEmpName] = useState("");
-  const [empEmail, setEmpEmail] = useState("");
-  const [empDept, setEmpDept] = useState("");
-  const [empRole, setEmpRole] = useState("Employee");
-  const [empStatus, setEmpStatus] = useState("Active");
-
-  /* reset form */
   function resetForm() {
-    setDeptName(""); setDeptHead(""); setDeptParent(""); setDeptStatus("Active");
-    setCatName(""); setCatFields(""); setCatStatus("Active");
-    setEmpName(""); setEmpEmail(""); setEmpDept(""); setEmpRole("Employee"); setEmpStatus("Active");
+    setDeptName("");
+    setDeptHead("");
+    setDeptParent("");
+    setCatName("");
+    setCatDesc("");
+    setFormError(null);
   }
 
   function openModal() {
     resetForm();
     setModalOpen(true);
   }
-
   function closeModal() {
     setModalOpen(false);
   }
 
-  /* submit handlers */
-  function handleDeptSubmit(e: React.FormEvent) {
+  async function handleDeptSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!deptName.trim()) return;
-    setDepartments((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await departmentsApi.create({
         name: deptName.trim(),
-        head: deptHead.trim() || "—",
-        parent: deptParent || "—",
-        status: deptStatus,
-      },
-    ]);
-    closeModal();
+        head_employee_id: deptHead || null,
+        parent_department_id: deptParent || null,
+      });
+      success("Department created.");
+      closeModal();
+      deptState.refetch();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Failed to create department.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  function handleCatSubmit(e: React.FormEvent) {
+  async function handleCatSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!catName.trim()) return;
-    setCategories((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await categoriesApi.create({
         name: catName.trim(),
-        count: 0,
-        fields: catFields.trim() || "—",
-        status: catStatus,
-      },
-    ]);
-    closeModal();
+        description: catDesc.trim() || null,
+      });
+      success("Category created.");
+      closeModal();
+      catState.refetch();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Failed to create category.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  function handleEmpSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!empName.trim() || !empEmail.trim()) return;
-    setEmployees((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
-        name: empName.trim(),
-        email: empEmail.trim(),
-        dept: empDept || departments[0]?.name || "—",
-        role: empRole,
-        status: empStatus,
-      },
-    ]);
-    closeModal();
+  async function handlePromote(employeeId: string, newRole: RoleCode) {
+    try {
+      await employeesApi.promote(employeeId, newRole);
+      success("Role updated.");
+      empState.refetch();
+    } catch (err) {
+      toastError(err instanceof ApiError ? err.message : "Failed to update role.");
+    }
   }
 
-  /* tab labels */
+  async function handleDeactivate(employeeId: string) {
+    if (!confirm("Deactivate this employee? They will lose access.")) return;
+    try {
+      await employeesApi.remove(employeeId);
+      success("Employee deactivated.");
+      empState.refetch();
+    } catch (err) {
+      toastError(err instanceof ApiError ? err.message : "Failed to deactivate.");
+    }
+  }
+
   const TABS: { key: Tab; label: string; count: number }[] = [
     { key: "departments", label: "Departments", count: departments.length },
     { key: "categories", label: "Categories", count: categories.length },
     { key: "employees", label: "Employees", count: employees.length },
   ];
 
-  /* label for Add button */
-  const addLabel: Record<Tab, string> = {
-    departments: "+ Add department",
-    categories: "+ Add category",
-    employees: "+ Add employee",
+  const loadingByTab: Record<Tab, boolean> = {
+    departments: deptState.loading,
+    categories: catState.loading,
+    employees: empState.loading,
+  };
+  const errorByTab: Record<Tab, string | null> = {
+    departments: deptState.error,
+    categories: catState.error,
+    employees: empState.error,
   };
 
   return (
-    <AppShell userName={CURRENT_USER.name} role={CURRENT_USER.role}>
-      {/* header */}
+    <AppShell>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <span className="eyebrow">Admin</span>
@@ -194,7 +190,6 @@ export default function SetupPage() {
         </div>
       </div>
 
-      {/* tabs + add */}
       <div className="setup-tabs-bar">
         <div className="setup-tabs">
           {TABS.map((t) => (
@@ -209,12 +204,14 @@ export default function SetupPage() {
             </button>
           ))}
         </div>
-        <button type="button" className="qa-btn primary" onClick={openModal}>
-          {addLabel[activeTab]}
-        </button>
+        {activeTab !== "employees" && (
+          <button type="button" className="qa-btn primary" onClick={openModal}>
+            {activeTab === "departments" ? "+ Add department" : "+ Add category"}
+          </button>
+        )}
       </div>
 
-      {/* ── DEPARTMENTS TAB ──────────────────────────── */}
+      {/* DEPARTMENTS */}
       {activeTab === "departments" && (
         <div className="panel">
           <div
@@ -234,31 +231,35 @@ export default function SetupPage() {
             <span>Parent dept.</span>
             <span>Status</span>
           </div>
-          {departments.map((d) => (
-            <div
-              key={d.id}
-              className="list-row"
-              style={{ gridTemplateColumns: "1.3fr 1fr 1fr 0.7fr" }}
-            >
-              <span style={{ fontWeight: 600 }}>{d.name}</span>
-              <span>{d.head}</span>
-              <span className="muted">{d.parent}</span>
-              <StatusChip status={d.status} />
-            </div>
-          ))}
+          {loadingByTab.departments ? (
+            <div className="list-row"><span className="muted">Loading…</span></div>
+          ) : errorByTab.departments ? (
+            <div className="list-row"><span className="muted">{errorByTab.departments}</span></div>
+          ) : departments.length === 0 ? (
+            <div className="list-row"><span className="muted">No departments yet.</span></div>
+          ) : (
+            departments.map((d) => (
+              <div key={d.department_id} className="list-row" style={{ gridTemplateColumns: "1.3fr 1fr 1fr 0.7fr" }}>
+                <span style={{ fontWeight: 600 }}>{d.name}</span>
+                <span>{d.head_employee_id ? empById.get(d.head_employee_id) ?? "—" : "—"}</span>
+                <span className="muted">{d.parent_department_id ? deptById.get(d.parent_department_id) ?? "—" : "—"}</span>
+                <StatusChip status={d.status} />
+              </div>
+            ))
+          )}
           <div className="setup-table-footer">
             Adding a Department here also lets you scope audits and reports by department.
           </div>
         </div>
       )}
 
-      {/* ── CATEGORIES TAB ───────────────────────────── */}
+      {/* CATEGORIES */}
       {activeTab === "categories" && (
         <div className="panel">
           <div
             className="list-row"
             style={{
-              gridTemplateColumns: "1.2fr 0.5fr 1.5fr 0.6fr",
+              gridTemplateColumns: "1.2fr 2fr 0.6fr",
               background: "var(--paper-raised)",
               fontFamily: "ui-monospace, monospace",
               fontSize: "10.5px",
@@ -268,35 +269,37 @@ export default function SetupPage() {
             }}
           >
             <span>Category</span>
-            <span>Assets</span>
-            <span>Custom fields</span>
+            <span>Description</span>
             <span>Status</span>
           </div>
-          {categories.map((c) => (
-            <div
-              key={c.id}
-              className="list-row"
-              style={{ gridTemplateColumns: "1.2fr 0.5fr 1.5fr 0.6fr" }}
-            >
-              <span style={{ fontWeight: 600 }}>{c.name}</span>
-              <span className="muted" style={{ fontFamily: "ui-monospace, monospace", fontWeight: 700 }}>{c.count}</span>
-              <span className="muted" style={{ fontSize: "12.5px" }}>{c.fields}</span>
-              <StatusChip status={c.status} />
-            </div>
-          ))}
+          {loadingByTab.categories ? (
+            <div className="list-row"><span className="muted">Loading…</span></div>
+          ) : errorByTab.categories ? (
+            <div className="list-row"><span className="muted">{errorByTab.categories}</span></div>
+          ) : categories.length === 0 ? (
+            <div className="list-row"><span className="muted">No categories yet.</span></div>
+          ) : (
+            categories.map((c) => (
+              <div key={c.category_id} className="list-row" style={{ gridTemplateColumns: "1.2fr 2fr 0.6fr" }}>
+                <span style={{ fontWeight: 600 }}>{c.name}</span>
+                <span className="muted" style={{ fontSize: "12.5px" }}>{c.description || "—"}</span>
+                <StatusChip status={c.status} />
+              </div>
+            ))
+          )}
           <div className="setup-table-footer">
             Categories let you attach custom fields specific to an asset type (e.g. warranty period for Electronics).
           </div>
         </div>
       )}
 
-      {/* ── EMPLOYEES TAB ────────────────────────────── */}
+      {/* EMPLOYEES */}
       {activeTab === "employees" && (
         <div className="panel">
           <div
             className="list-row"
             style={{
-              gridTemplateColumns: "1fr 1.2fr 0.8fr 0.8fr 0.6fr",
+              gridTemplateColumns: "1fr 1.2fr 0.8fr 0.9fr 0.9fr",
               background: "var(--paper-raised)",
               fontFamily: "ui-monospace, monospace",
               fontSize: "10.5px",
@@ -309,218 +312,114 @@ export default function SetupPage() {
             <span>Email</span>
             <span>Department</span>
             <span>Role</span>
-            <span>Status</span>
+            <span>Actions</span>
           </div>
-          {employees.map((emp) => (
-            <div
-              key={emp.id}
-              className="list-row"
-              style={{ gridTemplateColumns: "1fr 1.2fr 0.8fr 0.8fr 0.6fr" }}
-            >
-              <span style={{ fontWeight: 600 }}>{emp.name}</span>
-              <span className="muted" style={{ fontSize: "12.5px" }}>{emp.email}</span>
-              <span>{emp.dept}</span>
-              <RoleChip role={emp.role} />
-              <StatusChip status={emp.status} />
-            </div>
-          ))}
+          {loadingByTab.employees ? (
+            <div className="list-row"><span className="muted">Loading…</span></div>
+          ) : errorByTab.employees ? (
+            <div className="list-row"><span className="muted">{errorByTab.employees}</span></div>
+          ) : employees.length === 0 ? (
+            <div className="list-row"><span className="muted">No employees yet.</span></div>
+          ) : (
+            employees.map((emp) => {
+              const role = emp.role_code as RoleCode;
+              return (
+                <div key={emp.employee_id} className="list-row" style={{ gridTemplateColumns: "1fr 1.2fr 0.8fr 0.9fr 0.9fr" }}>
+                  <span style={{ fontWeight: 600 }}>{emp.name}</span>
+                  <span className="muted" style={{ fontSize: "12.5px" }}>{emp.email}</span>
+                  <span>{emp.department_id ? deptById.get(emp.department_id) ?? emp.department_name ?? "—" : "—"}</span>
+                  <select
+                    className="setup-input"
+                    style={{ padding: "4px 8px", fontSize: "12.5px" }}
+                    value={role}
+                    onChange={(e) => handlePromote(emp.employee_id, e.target.value as RoleCode)}
+                    disabled={emp.status !== "ACTIVE"}
+                  >
+                    {ROLE_ORDER.map((r) => (
+                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                    ))}
+                  </select>
+                  <span className="flex items-center gap-2">
+                    <StatusChip status={emp.status} />
+                    {emp.status === "ACTIVE" && (
+                      <button
+                        type="button"
+                        className="text-[12px] text-[color:var(--hue-coral)] underline"
+                        onClick={() => handleDeactivate(emp.employee_id)}
+                      >
+                        Deactivate
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })
+          )}
           <div className="setup-table-footer">
-            This is the only place roles are assigned. Admin promotes an Employee to Department Head or Asset Manager here.
+            This is the only place roles are assigned. Signup creates Employees; promote to Department Head or Asset Manager here.
           </div>
         </div>
       )}
 
-      {/* ── MODAL OVERLAY ────────────────────────────── */}
+      {/* MODAL */}
       {modalOpen && (
         <div className="setup-overlay" onClick={closeModal}>
-          <div
-            className="setup-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="setup-modal" onClick={(e) => e.stopPropagation()}>
             <div className="setup-modal-head">
-              <h2>
-                {activeTab === "departments" && "Add department"}
-                {activeTab === "categories" && "Add category"}
-                {activeTab === "employees" && "Add employee"}
-              </h2>
-              <button type="button" className="setup-close" onClick={closeModal} aria-label="Close">
-                ×
-              </button>
+              <h2>{activeTab === "departments" ? "Add department" : "Add category"}</h2>
+              <button type="button" className="setup-close" onClick={closeModal} aria-label="Close">×</button>
             </div>
 
-            {/* DEPARTMENT FORM */}
+            {formError && (
+              <div className="mx-6 mb-2 rounded-[2px] border border-[color:var(--hue-coral)] bg-[color-mix(in_srgb,var(--hue-coral)_10%,transparent)] px-3 py-2 text-[12.5px] text-[color:var(--hue-coral)]">
+                {formError}
+              </div>
+            )}
+
             {activeTab === "departments" && (
               <form className="setup-form" onSubmit={handleDeptSubmit}>
                 <label className="setup-label">
                   Department name <span className="req">*</span>
-                  <input
-                    type="text"
-                    value={deptName}
-                    onChange={(e) => setDeptName(e.target.value)}
-                    placeholder="e.g. Marketing"
-                    className="setup-input"
-                    autoFocus
-                    required
-                  />
+                  <input type="text" value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="e.g. Marketing" className="setup-input" autoFocus required />
                 </label>
                 <label className="setup-label">
                   Department Head
-                  <select
-                    value={deptHead}
-                    onChange={(e) => setDeptHead(e.target.value)}
-                    className="setup-input"
-                  >
+                  <select value={deptHead} onChange={(e) => setDeptHead(e.target.value)} className="setup-input">
                     <option value="">— none —</option>
-                    {employees
-                      .filter((e) => e.status === "Active")
-                      .map((e) => (
-                        <option key={e.id} value={e.name}>{e.name}</option>
-                      ))}
+                    {employees.filter((e) => e.status === "ACTIVE").map((e) => (
+                      <option key={e.employee_id} value={e.employee_id}>{e.name}</option>
+                    ))}
                   </select>
                 </label>
                 <label className="setup-label">
                   Parent department
-                  <select
-                    value={deptParent}
-                    onChange={(e) => setDeptParent(e.target.value)}
-                    className="setup-input"
-                  >
+                  <select value={deptParent} onChange={(e) => setDeptParent(e.target.value)} className="setup-input">
                     <option value="">— none (top-level) —</option>
-                    {departments
-                      .filter((d) => d.status === "Active")
-                      .map((d) => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
-                  </select>
-                </label>
-                <label className="setup-label">
-                  Status
-                  <select
-                    value={deptStatus}
-                    onChange={(e) => setDeptStatus(e.target.value)}
-                    className="setup-input"
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
+                    {departments.filter((d) => d.status === "ACTIVE").map((d) => (
+                      <option key={d.department_id} value={d.department_id}>{d.name}</option>
+                    ))}
                   </select>
                 </label>
                 <div className="setup-actions">
-                  <button type="submit" className="btn btn-accent">Add department</button>
+                  <button type="submit" className="btn btn-accent" disabled={submitting}>{submitting ? "Adding…" : "Add department"}</button>
                   <button type="button" className="btn btn-ghost" onClick={closeModal}>Cancel</button>
                 </div>
               </form>
             )}
 
-            {/* CATEGORY FORM */}
             {activeTab === "categories" && (
               <form className="setup-form" onSubmit={handleCatSubmit}>
                 <label className="setup-label">
                   Category name <span className="req">*</span>
-                  <input
-                    type="text"
-                    value={catName}
-                    onChange={(e) => setCatName(e.target.value)}
-                    placeholder="e.g. Office Supplies"
-                    className="setup-input"
-                    autoFocus
-                    required
-                  />
+                  <input type="text" value={catName} onChange={(e) => setCatName(e.target.value)} placeholder="e.g. Office Supplies" className="setup-input" autoFocus required />
                 </label>
                 <label className="setup-label">
-                  Custom fields
-                  <input
-                    type="text"
-                    value={catFields}
-                    onChange={(e) => setCatFields(e.target.value)}
-                    placeholder="e.g. Warranty period, Serial no."
-                    className="setup-input"
-                  />
-                  <span className="setup-hint">Comma-separated. These appear as extra fields during asset registration.</span>
-                </label>
-                <label className="setup-label">
-                  Status
-                  <select
-                    value={catStatus}
-                    onChange={(e) => setCatStatus(e.target.value)}
-                    className="setup-input"
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
-                  </select>
+                  Description
+                  <input type="text" value={catDesc} onChange={(e) => setCatDesc(e.target.value)} placeholder="Short description of this category" className="setup-input" />
+                  <span className="setup-hint">Custom fields can be attached to a category after it is created.</span>
                 </label>
                 <div className="setup-actions">
-                  <button type="submit" className="btn btn-accent">Add category</button>
-                  <button type="button" className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-                </div>
-              </form>
-            )}
-
-            {/* EMPLOYEE FORM */}
-            {activeTab === "employees" && (
-              <form className="setup-form" onSubmit={handleEmpSubmit}>
-                <label className="setup-label">
-                  Full name <span className="req">*</span>
-                  <input
-                    type="text"
-                    value={empName}
-                    onChange={(e) => setEmpName(e.target.value)}
-                    placeholder="e.g. Neha Sharma"
-                    className="setup-input"
-                    autoFocus
-                    required
-                  />
-                </label>
-                <label className="setup-label">
-                  Work email <span className="req">*</span>
-                  <input
-                    type="email"
-                    value={empEmail}
-                    onChange={(e) => setEmpEmail(e.target.value)}
-                    placeholder="neha@company.com"
-                    className="setup-input"
-                    required
-                  />
-                </label>
-                <label className="setup-label">
-                  Department
-                  <select
-                    value={empDept}
-                    onChange={(e) => setEmpDept(e.target.value)}
-                    className="setup-input"
-                  >
-                    {departments
-                      .filter((d) => d.status === "Active")
-                      .map((d) => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
-                  </select>
-                </label>
-                <label className="setup-label">
-                  Role
-                  <select
-                    value={empRole}
-                    onChange={(e) => setEmpRole(e.target.value)}
-                    className="setup-input"
-                  >
-                    {ROLE_OPTIONS.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                  <span className="setup-hint">Signup only creates Employees. Promote to Department Head or Asset Manager here.</span>
-                </label>
-                <label className="setup-label">
-                  Status
-                  <select
-                    value={empStatus}
-                    onChange={(e) => setEmpStatus(e.target.value)}
-                    className="setup-input"
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
-                  </select>
-                </label>
-                <div className="setup-actions">
-                  <button type="submit" className="btn btn-accent">Add employee</button>
+                  <button type="submit" className="btn btn-accent" disabled={submitting}>{submitting ? "Adding…" : "Add category"}</button>
                   <button type="button" className="btn btn-ghost" onClick={closeModal}>Cancel</button>
                 </div>
               </form>

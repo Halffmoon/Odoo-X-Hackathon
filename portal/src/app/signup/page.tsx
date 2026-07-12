@@ -1,6 +1,45 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 
+import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/api-client";
+
 export default function SignupPage() {
+  const { signup } = useAuth();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await signup({
+        name: `${firstName} ${lastName}`.trim(),
+        email,
+        password,
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) setError("An account with this email already exists.");
+        else setError(err.message);
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-16">
       <div className="hero-blob" style={{ inset: "-10% 20% auto auto" }} aria-hidden="true" />
@@ -32,12 +71,20 @@ export default function SignupPage() {
             </p>
           </div>
 
-          <form className="flex flex-col gap-4 px-8 py-7">
+          <form className="flex flex-col gap-4 px-8 py-7" onSubmit={onSubmit}>
+            {error && (
+              <div className="rounded-[2px] border border-[color:var(--hue-coral)] bg-[color-mix(in_srgb,var(--hue-coral)_10%,transparent)] px-3.5 py-2.5 text-[13px] text-[color:var(--hue-coral)]">
+                {error}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-[13px] font-medium">
                 First name
                 <input
                   type="text"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
                   placeholder="Priya"
                   className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-violet)]"
                 />
@@ -46,6 +93,8 @@ export default function SignupPage() {
                 Last name
                 <input
                   type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
                   placeholder="Nair"
                   className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-violet)]"
                 />
@@ -55,6 +104,9 @@ export default function SignupPage() {
               Work email
               <input
                 type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
                 className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-violet)]"
               />
@@ -63,13 +115,20 @@ export default function SignupPage() {
               Password
               <input
                 type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
                 className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-violet)]"
               />
             </label>
 
-            <button type="submit" className="btn btn-accent btn-lg mt-2 justify-center">
-              Create free account
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn btn-accent btn-lg mt-2 justify-center disabled:opacity-60"
+            >
+              {submitting ? "Creating account…" : "Create free account"}
             </button>
           </form>
         </div>

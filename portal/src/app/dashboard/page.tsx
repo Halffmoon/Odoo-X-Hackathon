@@ -1,8 +1,14 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo } from "react";
+
 import AppShell from "@/components/AppShell";
 import Reveal from "@/components/Reveal";
-
-const CURRENT_USER = { name: "Arjun Mehta", role: "Asset Manager" };
+import { useAuth } from "@/lib/auth-context";
+import { useApi } from "@/lib/use-api";
+import { dashboardApi } from "@/lib/api/dashboard";
+import { employeesApi } from "@/lib/api/employees";
 
 const HUES = {
   teal: { c: "var(--hue-teal)", s: "var(--hue-teal-soft)" },
@@ -13,154 +19,128 @@ const HUES = {
   lime: { c: "var(--hue-lime)", s: "var(--hue-lime-soft)" },
 } as const;
 
-const KPIS = [
-  { label: "Assets available", value: 128, hue: "teal", icon: "box" },
-  { label: "Assets allocated", value: 342, hue: "amber", icon: "swap" },
-  { label: "Maintenance today", value: 6, hue: "coral", icon: "wrench" },
-  { label: "Active bookings", value: 19, hue: "blue", icon: "calendar" },
-  { label: "Pending transfers", value: 4, hue: "violet", icon: "arrows" },
-  { label: "Upcoming returns", value: 11, hue: "lime", icon: "clock" },
-] as const;
+type Hue = keyof typeof HUES;
 
-const OVERDUE = [
-  { tag: "AF-0114", name: "Dell Latitude 5440", holder: "Priya Nair", due: "3 Jul", days: 9 },
-  { tag: "AF-0056", name: "Canon Projector EX40", holder: "Sales Dept.", due: "6 Jul", days: 6 },
-  { tag: "AF-0201", name: "Ergo Chair — Type B", holder: "Rohan Iyer", due: "9 Jul", days: 3 },
-];
+const ICON: Record<string, React.ReactNode> = {
+  box: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <path d="M2 4.6L8 2L14 4.6V11.4L8 14L2 11.4V4.6Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M2 4.6L8 7.2M8 7.2L14 4.6M8 7.2V14" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  ),
+  swap: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <path d="M2 5.5H12.5L10 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 10.5H3.5L6 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  wrench: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <path d="M10.6 2.2a3.2 3.2 0 0 0-4.2 3.9L2 10.5l1.9 1.9 4.4-4.4a3.2 3.2 0 0 0 3.9-4.2l-2.2 2.2-1.7-1.7 2.2-2.2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  ),
+  calendar: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <rect x="1.5" y="3" width="13" height="11" rx="1" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.5 6.3H14.5M4.5 1.5V4M11.5 1.5V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  ),
+  arrows: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <path d="M5 2L2 5L5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 5H10.5C12.4 5 14 6.6 14 8.5S12.4 12 10.5 12H8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  ),
+  clock: (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 4.8V8L10.2 9.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+};
 
-const UPCOMING = [
-  { tag: "AF-0092", name: "Room B2 — Booking", holder: "Design Team", due: "14 Jul" },
-  { tag: "AF-0140", name: "MacBook Pro 14\"", holder: "Sana Qureshi", due: "16 Jul" },
-  { tag: "AF-0075", name: "Bajaj Pulsar (Fleet)", holder: "Logistics", due: "19 Jul" },
-];
-
-const QUICK_ACTIONS = [
-  {
-    href: "/assets/register",
-    title: "Register Asset",
-    desc: "Add a new asset to the directory",
-    hue: "teal",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-        <path d="M2 4.6L8 2L14 4.6V11.4L8 14L2 11.4V4.6Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-        <path d="M2 4.6L8 7.2M8 7.2L14 4.6M8 7.2V14" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    href: "/bookings/new",
-    title: "Book Resource",
-    desc: "Reserve a room, vehicle, or equipment",
-    hue: "blue",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-        <rect x="1.5" y="3" width="13" height="11" rx="1" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M1.5 6.3H14.5M4.5 1.5V4M11.5 1.5V4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    href: "/maintenance/new",
-    title: "Raise Maintenance Request",
-    desc: "Report a fault and route it for approval",
-    hue: "coral",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-        <path
-          d="M10.6 2.2a3.2 3.2 0 0 0-4.2 3.9L2 10.5l1.9 1.9 4.4-4.4a3.2 3.2 0 0 0 3.9-4.2l-2.2 2.2-1.7-1.7 2.2-2.2Z"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-] as const;
-
-const CHART_ORDER = ["teal", "amber", "violet", "coral", "lime", "blue"] as const;
-const CHART_DATA = CHART_ORDER.map((hue) => KPIS.find((k) => k.hue === hue)!);
-const CHART_TOTAL = CHART_DATA.reduce((sum, k) => sum + k.value, 0);
-const CHART_GRADIENT = (() => {
-  let acc = 0;
-  const stops = CHART_DATA.map((k) => {
-    const from = acc;
-    acc += (k.value / CHART_TOTAL) * 100;
-    return `${HUES[k.hue].c} ${from}% ${acc}%`;
-  });
-  return `conic-gradient(${stops.join(", ")})`;
-})();
-
-const ACTIVITY = [
-  { text: "Transfer of AF-0114 approved by Asset Manager", time: "10m ago", hue: "teal" },
-  { text: "Booking confirmed — Room B2, 9:00–10:00", time: "42m ago", hue: "blue" },
-  { text: "Maintenance request raised for AF-0056", time: "1h ago", hue: "coral" },
-  { text: "Audit cycle Q3-West flagged 2 discrepancies", time: "3h ago", hue: "violet" },
-  { text: "AF-0037 marked Available after return", time: "5h ago", hue: "lime" },
-] as const;
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+
+  const kpiState = useApi((signal) => dashboardApi.kpis(signal));
+  const overdueState = useApi((signal) => dashboardApi.overdue(signal));
+  const employeesState = useApi((signal) => employeesApi.list(undefined, signal));
+
+  const { refetch: refetchKpis } = kpiState;
+  const { refetch: refetchOverdue } = overdueState;
+  useEffect(() => {
+    const id = setInterval(() => {
+      refetchKpis();
+      refetchOverdue();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [refetchKpis, refetchOverdue]);
+
+  const nameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (employeesState.data ?? []).forEach((e) => map.set(e.employee_id, e.name));
+    return map;
+  }, [employeesState.data]);
+
+  const kpis = kpiState.data;
+  const KPIS: { label: string; value: number; hue: Hue; icon: string }[] = kpis
+    ? [
+        { label: "Assets available", value: kpis.assets_available, hue: "teal", icon: "box" },
+        { label: "Assets allocated", value: kpis.assets_allocated, hue: "amber", icon: "swap" },
+        { label: "Maintenance today", value: kpis.maintenance_today, hue: "coral", icon: "wrench" },
+        { label: "Active bookings", value: kpis.active_bookings, hue: "blue", icon: "calendar" },
+        { label: "Pending transfers", value: kpis.pending_transfers, hue: "violet", icon: "arrows" },
+        { label: "Upcoming returns", value: kpis.upcoming_returns.length, hue: "lime", icon: "clock" },
+      ]
+    : [];
+
+  const overdue = overdueState.data ?? [];
+  const upcoming = kpis?.upcoming_returns ?? [];
+  const firstName = user?.name.split(" ")[0] ?? "there";
+
   return (
-    <AppShell userName={CURRENT_USER.name} role={CURRENT_USER.role}>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <span className="eyebrow">Dashboard</span>
-          <h1 className="mt-2 text-[26px] sm:text-[30px]">Welcome back, {CURRENT_USER.name.split(" ")[0]}.</h1>
-          <p className="mt-1.5 text-[14px] text-text-soft">Here&apos;s what&apos;s moving across the organization today.</p>
-        </div>
+    <AppShell>
+      <div>
+        <span className="eyebrow">Dashboard</span>
+        <h1 className="mt-2 text-[26px] sm:text-[30px]">Welcome back, {firstName}.</h1>
+        <p className="mt-1.5 text-[14px] text-text-soft">Here&apos;s what&apos;s moving across the organization today.</p>
       </div>
 
-      <div className="dash-top-row">
-        <Reveal>
-          <div className="qa-card-grid qa-card-grid-stack">
-            {QUICK_ACTIONS.map((a) => (
-              <Link key={a.href} href={a.href} className="qa-card" style={{ ["--q-color" as string]: HUES[a.hue].c, ["--q-soft" as string]: HUES[a.hue].s }}>
-                <span className="qicon">{a.icon}</span>
-                <span>
-                  <span className="qtitle block">{a.title}</span>
-                  <span className="qdesc block">{a.desc}</span>
-                </span>
-                <span className="qarrow">→</span>
-              </Link>
-            ))}
-          </div>
-        </Reveal>
-
-        <Reveal style={{ transitionDelay: "80ms" }}>
-          <div className="chart-panel">
-            <div className="chart-panel-head">
-              <div>
-                <h2>Operational split</h2>
-                <p>All 6 KPI signals, today</p>
-              </div>
-              <span className="chart-pill">Live</span>
-            </div>
-            <div className="donut-wrap">
-              <div className="donut" style={{ background: CHART_GRADIENT }}>
-                <div className="donut-center">
-                  <span className="dn">{CHART_TOTAL}</span>
-                  <span className="dl">tracked items</span>
-                </div>
-              </div>
-            </div>
-            <div className="chart-legend">
-              {CHART_DATA.map((k) => (
-                <div key={k.label} className="chart-legend-row">
-                  <span className="ldot" style={{ ["--l-color" as string]: HUES[k.hue].c }} />
-                  <span className="lname">{k.label}</span>
-                  <span className="lval">{k.value}</span>
-                  <span className="lpct">{Math.round((k.value / CHART_TOTAL) * 100)}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Reveal>
+      <div className="dash-actions">
+        <Link href="/assets/register" className="qa-btn primary">+ Register Asset</Link>
+        <Link href="/bookings/new" className="qa-btn">Book Resource</Link>
+        <Link href="/maintenance/new" className="qa-btn">Raise Maintenance Request</Link>
       </div>
+
+      <Reveal>
+        {kpiState.error ? (
+          <div className="panel"><div className="empty-state">{kpiState.error} <button className="underline" onClick={kpiState.refetch}>Retry</button></div></div>
+        ) : (
+          <div className="kpi-card-grid">
+            {(kpiState.loading ? Array.from({ length: 6 }) : KPIS).map((k, i) => {
+              const kpi = k as { label: string; value: number; hue: Hue; icon: string } | undefined;
+              const hue = kpi ? HUES[kpi.hue] : HUES.teal;
+              return (
+                <div key={kpi?.label ?? i} className="kpi-card" style={{ ["--k-color" as string]: hue.c, ["--k-soft" as string]: hue.s }}>
+                  <span className="kicon">{kpi ? ICON[kpi.icon] : null}</span>
+                  <div className="knum">{kpi ? kpi.value : "—"}</div>
+                  <div className="klabel">{kpi ? kpi.label : "Loading…"}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Reveal>
 
       <Reveal style={{ transitionDelay: "120ms" }}>
         <div className="mt-8">
           <div className="section-head">
             <h2 style={{ color: "var(--hue-coral)" }}>Overdue returns</h2>
-            <span className="count">{OVERDUE.length} past expected return date</span>
+            <span className="count">{overdue.length} past expected return date</span>
           </div>
           <div className="panel panel-warn">
             <div className="list-row" style={{ background: "var(--paper-raised)", fontFamily: "ui-monospace, monospace", fontSize: "10.5px", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)" }}>
@@ -169,16 +149,20 @@ export default function DashboardPage() {
               <span>Due date</span>
               <span>Status</span>
             </div>
-            {OVERDUE.map((o) => (
-              <div key={o.tag} className="list-row">
-                <span className="tag">
-                  {o.tag} · {o.name}
-                </span>
-                <span>{o.holder}</span>
-                <span className="muted">{o.due}</span>
-                <span className="chip chip-overdue">{o.days}d overdue</span>
-              </div>
-            ))}
+            {overdueState.loading ? (
+              <div className="list-row"><span className="muted">Loading…</span></div>
+            ) : overdue.length === 0 ? (
+              <div className="list-row"><span className="muted">No overdue returns.</span></div>
+            ) : (
+              overdue.map((o) => (
+                <div key={o.allocation_id} className="list-row">
+                  <span className="tag">{o.asset_tag} · {o.asset_name}</span>
+                  <span>{o.employee_id ? nameById.get(o.employee_id) ?? "—" : "Department"}</span>
+                  <span className="muted">{formatDate(o.expected_return_date)}</span>
+                  <span className="chip chip-overdue">{o.days_overdue}d overdue</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </Reveal>
@@ -191,31 +175,32 @@ export default function DashboardPage() {
               <span className="count">next 7 days</span>
             </div>
             <div className="panel">
-              {UPCOMING.map((u) => (
-                <div key={u.tag} className="list-row" style={{ gridTemplateColumns: "1.6fr 1fr auto" }}>
-                  <span className="tag">
-                    {u.tag} · {u.name}
-                  </span>
-                  <span className="muted">{u.holder}</span>
-                  <span className="muted">{u.due}</span>
-                </div>
-              ))}
+              {kpiState.loading ? (
+                <div className="list-row"><span className="muted">Loading…</span></div>
+              ) : upcoming.length === 0 ? (
+                <div className="list-row"><span className="muted">Nothing due in the next 7 days.</span></div>
+              ) : (
+                upcoming.map((u) => (
+                  <div key={u.allocation_id} className="list-row" style={{ gridTemplateColumns: "1.6fr 1fr auto" }}>
+                    <span className="tag">{u.asset_tag} · {u.asset_name}</span>
+                    <span className="muted">{u.employee_id ? nameById.get(u.employee_id) ?? "—" : "—"}</span>
+                    <span className="muted">{formatDate(u.expected_return_date)}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           <div>
             <div className="section-head">
-              <h2>Recent activity</h2>
-              <span className="count">live</span>
+              <h2>At a glance</h2>
+              <span className="count">{kpis?.scope.toLowerCase() ?? ""} scope</span>
             </div>
             <div className="panel">
-              {ACTIVITY.map((a, i) => (
-                <div key={i} className="activity-item">
-                  <span className="adot" style={{ ["--a-color" as string]: HUES[a.hue].c }} />
-                  <span className="flex-1">{a.text}</span>
-                  <span className="atime">{a.time}</span>
-                </div>
-              ))}
+              <div className="activity-item"><span className="adot" style={{ ["--a-color" as string]: HUES.coral.c }} /><span className="flex-1">{kpis?.overdue_returns ?? 0} allocations overdue for return</span></div>
+              <div className="activity-item"><span className="adot" style={{ ["--a-color" as string]: HUES.violet.c }} /><span className="flex-1">{kpis?.pending_transfers ?? 0} transfer requests awaiting approval</span></div>
+              <div className="activity-item"><span className="adot" style={{ ["--a-color" as string]: HUES.coral.c }} /><span className="flex-1">{kpis?.maintenance_today ?? 0} assets in maintenance today</span></div>
+              <div className="activity-item"><span className="adot" style={{ ["--a-color" as string]: HUES.blue.c }} /><span className="flex-1">{kpis?.active_bookings ?? 0} active resource bookings</span></div>
             </div>
           </div>
         </div>

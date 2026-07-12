@@ -1,6 +1,36 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 
+import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/api-client";
+
 export default function LoginPage() {
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await login(email, password);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) setError("Invalid email or password.");
+        else if (err.status === 403) setError("Account is locked or inactive.");
+        else setError(err.message);
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+      setSubmitting(false);
+    }
+  }
+
   return (
     <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[1fr_1.1fr]">
       {/* form side */}
@@ -15,11 +45,20 @@ export default function LoginPage() {
             Log in to see what your organization holds today.
           </p>
 
-          <form className="mt-9 flex flex-col gap-4">
+          {error && (
+            <div className="mt-6 rounded-[2px] border border-[color:var(--hue-coral)] bg-[color-mix(in_srgb,var(--hue-coral)_10%,transparent)] px-3.5 py-2.5 text-[13px] text-[color:var(--hue-coral)]">
+              {error}
+            </div>
+          )}
+
+          <form className="mt-6 flex flex-col gap-4" onSubmit={onSubmit}>
             <label className="flex flex-col gap-1.5 text-[13px] font-medium">
               Work email
               <input
                 type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
                 className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-blue)]"
               />
@@ -33,13 +72,20 @@ export default function LoginPage() {
               </span>
               <input
                 type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="rounded-[2px] border border-line bg-paper-raised px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--hue-blue)]"
               />
             </label>
 
-            <button type="submit" className="btn btn-accent btn-lg mt-2 justify-center">
-              Log in
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn btn-accent btn-lg mt-2 justify-center disabled:opacity-60"
+            >
+              {submitting ? "Logging in…" : "Log in"}
             </button>
           </form>
 

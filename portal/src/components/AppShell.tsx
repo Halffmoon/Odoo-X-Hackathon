@@ -1,19 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-const NAV = [
+import { useAuth, ROLE_LABEL, type RoleCode } from "@/lib/auth-context";
+
+const NAV: {
+  href: string;
+  label: string;
+  icon: string;
+  roles?: RoleCode[];
+}[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid" },
-  { href: "/setup", label: "Organization Setup", icon: "building" },
+  { href: "/setup", label: "Organization Setup", icon: "building", roles: ["ADMIN"] },
   { href: "/assets", label: "Assets", icon: "box" },
   { href: "/allocations", label: "Allocation & Transfers", icon: "swap" },
   { href: "/bookings", label: "Resource Booking", icon: "calendar" },
   { href: "/maintenance", label: "Maintenance", icon: "wrench" },
-  { href: "/audits", label: "Audits", icon: "check" },
-  { href: "/reports", label: "Reports", icon: "chart" },
+  {
+    href: "/audits",
+    label: "Audits",
+    icon: "check",
+    roles: ["ADMIN", "ASSET_MANAGER"],
+  },
+  {
+    href: "/reports",
+    label: "Reports",
+    icon: "chart",
+    roles: ["ADMIN", "ASSET_MANAGER", "DEPT_HEAD"],
+  },
   { href: "/activity", label: "Activity & Notifications", icon: "bell" },
-] as const;
+];
 
 const ICONS: Record<string, React.ReactNode> = {
   grid: (
@@ -85,22 +103,38 @@ const ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
-export default function AppShell({
-  children,
-  userName,
-  role,
-}: {
-  children: React.ReactNode;
-  userName: string;
-  role: string;
-}) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading, logout } = useAuth();
+
+  // Auth guard — bounce unauthenticated visitors to login.
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, user, router]);
+
+  if (loading || !user) {
+    return (
+      <div className="app-shell">
+        <main className="app-main flex items-center justify-center">
+          <div className="text-[14px] text-text-soft">Loading your workspace…</div>
+        </main>
+      </div>
+    );
+  }
+
+  const userName = user.name;
+  const role = ROLE_LABEL[user.role_code];
   const initials = userName
     .split(" ")
     .map((p) => p[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const visibleNav = NAV.filter(
+    (item) => !item.roles || item.roles.includes(user.role_code),
+  );
 
   return (
     <div className="app-shell">
@@ -109,7 +143,7 @@ export default function AppShell({
           AssetFlow <span className="brand-tag">AF</span>
         </Link>
         <nav className="app-nav" aria-label="Primary">
-          {NAV.map((item) => {
+          {visibleNav.map((item) => {
             const active = pathname === item.href;
             return (
               <Link key={item.href} href={item.href} className={`app-nav-link ${active ? "active" : ""}`}>
@@ -119,6 +153,17 @@ export default function AppShell({
             );
           })}
         </nav>
+        <button
+          type="button"
+          onClick={() => logout()}
+          className="app-nav-link mt-auto w-full cursor-pointer border-0 bg-transparent text-left"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M6 2H3.5C2.7 2 2 2.7 2 3.5v9C2 13.3 2.7 14 3.5 14H6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M9.5 11L13 8L9.5 5M13 8H6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Log out
+        </button>
       </aside>
 
       <div className="flex min-w-0 flex-col">
