@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+python-jose[cryptography]
+bcrypt
+python-dotenv
+pydantic[email]
+pydantic-settings
+python-multipart
+openpyxl
+fpdf2
